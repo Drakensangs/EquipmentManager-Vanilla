@@ -1,0 +1,7 @@
+## Interface: 11200
+## Title: Equipment Manager
+## Notes: Create, manage and swap between equipment sets.
+## Author: Original module: brues-code; Addon version: Drakensangs
+## Version: 1.0
+
+EquipmentManager.lua
