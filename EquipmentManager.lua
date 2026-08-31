@@ -1307,11 +1307,13 @@ frame:SetScript("OnEvent", function()
   altTracker:SetScript("OnUpdate", function()
 	-- Poll which paperdoll slot the mouse is over right now.
 	local hovered = nil
-	for _, slotName in ipairs(CHAR_SLOT_NAMES) do
-	  local slot = _G["Character" .. slotName]
-	  if slot and MouseIsOver(slot) then
-		hovered = slot
-		break
+	if CharacterFrame:IsVisible() then
+	  for _, slotName in ipairs(CHAR_SLOT_NAMES) do
+		local slot = _G["Character" .. slotName]
+		if slot and slot:IsVisible() and MouseIsOver(slot) then
+		  hovered = slot
+		  break
+		end
 	  end
 	end
 	-- Only update altHoveredSlot when mouse is over a slot.
