@@ -6,7 +6,7 @@
 EquipmentManager is based on the [**pfUI**](https://github.com/brues-code/pfUI) module of the same name. It has several changes/additions/tweaks here and there. Its features include:
 
   - create sets, delete sets, change set names and icon names
-  - if two of the same items are in your bag and you've made your set with the enchanted one, the Equipment Manager will correctly equip the enchanted item
+  - if two of the same item are in your bag, let's say one is enchanted and the other one isn't, and you've made your set with the enchanted one, Equipment Manager will correctly equip the enchanted item
   - access to all game icons when creating sets
   - search bar on the create set frame
   - flyout frame mimics the WotLK look
