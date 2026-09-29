@@ -1,7 +1,7 @@
 # 🗡️ **EquipmentManager** (Vanilla 1.12.1)
 
 > [!IMPORTANT]
-> **EquipmentManager** requires [**ClassicAPI**](https://github.com/brues-code/ClassicAPI) in order to function.
+> **EquipmentManager** requires the latest version of [**ClassicAPI**](https://github.com/brues-code/ClassicAPI) in order to function.
 
 EquipmentManager is based on the [**pfUI**](https://github.com/brues-code/pfUI) module of the same name. It has several changes/additions/tweaks here and there. Its features include:
 
@@ -10,6 +10,7 @@ EquipmentManager is based on the [**pfUI**](https://github.com/brues-code/pfUI) 
   - access to all game icons when creating sets
   - search bar on the create set frame
   - flyout frame mimics the WotLK look
+  - drag and drop equipment set icons on the action bar
 
 Equipment sets are saved in ClassicAPI_EquipmentSets.txt, in the WTF\Account\Account Name\Server Name\Character Name\ folder.
 
