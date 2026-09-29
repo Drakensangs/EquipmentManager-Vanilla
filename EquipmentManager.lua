@@ -470,9 +470,31 @@ frame:SetScript("OnEvent", function()
 	row.iconBtn = CreateFrame("Button", "STEqMgrRowIcon" .. setRowIconCount, row, "ActionButtonTemplate")
 	row.iconBtn:SetWidth(32); row.iconBtn:SetHeight(32)
 	row.iconBtn:SetPoint("LEFT", row, "LEFT", 4, 0)
-	row.iconBtn:EnableMouse(false)
 	row.iconBtn:SetNormalTexture("")
 	row.icon = _G["STEqMgrRowIcon" .. setRowIconCount .. "Icon"]
+
+	if C_EquipmentSet.PickupEquipmentSet then
+	  row.iconBtn:RegisterForDrag("LeftButton")
+	  row.iconBtn:SetScript("OnDragStart", function()
+		if not row.setID then return end
+		C_EquipmentSet.PickupEquipmentSet(row.setID)
+	  end)
+	end
+	row.iconBtn:SetScript("OnEnter", function()
+	  if not row.setID then return end
+	  local name = C_EquipmentSet.GetEquipmentSetInfo(row.setID)
+	  if not name then return end
+	  GameTooltip_SetDefaultAnchor(GameTooltip, this)
+	  GameTooltip:SetEquipmentSet(name)
+	  GameTooltip:Show()
+	  row.gear:Show()
+	end)
+	row.iconBtn:SetScript("OnLeave", function()
+	  if not MouseIsOver(row.gear) then
+		GameTooltip:Hide()
+		row.gear:Hide()
+	  end
+	end)
 
 	row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	row.text:SetPoint("LEFT",  row.iconBtn, "RIGHT", 6,   0)
@@ -1474,8 +1496,22 @@ frame:SetScript("OnEvent", function()
   events:RegisterEvent("EQUIPMENT_SWAP_FINISHED")
   events:RegisterEvent("BAG_UPDATE_DELAYED")
   events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+  events:RegisterEvent("WEAR_EQUIPMENT_SET")
+
   events:SetScript("OnEvent", function()
-	if event == "PLAYER_EQUIPMENT_CHANGED" then
+	if event == "CURSOR_CHANGED" then
+	  if arg1 and arg3 == Enum.UICursorType.EquipmentSet then
+		PlaySound("INTERFACESOUND_CURSORDROPOBJECT")
+	  end
+	elseif event == "WEAR_EQUIPMENT_SET" then
+	  local setID = arg1
+	  if not setID then return end
+	  local name, _, _, _, _, _, _, numMissing = C_EquipmentSet.GetEquipmentSetInfo(setID)
+	  if numMissing and numMissing > 0 and name then
+		UIErrorsFrame:AddMessage(string.format(ERR_EQUIPMENT_MANAGER_MISSING_ITEM_S, name), 1, .1, .1, 1)
+	  end
+	  PlaySound("INTERFACESOUND_CHARWINDOWTAB")
+	elseif event == "PLAYER_EQUIPMENT_CHANGED" then
 	  local changedSlot = arg1
 	  if frame:IsShown() then
 		eqmgr.Refresh()
@@ -1502,4 +1538,8 @@ frame:SetScript("OnEvent", function()
 	  end
 	end
   end)
+
+  if C_EquipmentSet.PickupEquipmentSet then
+	events:RegisterEvent("CURSOR_CHANGED")
+  end
 end)
