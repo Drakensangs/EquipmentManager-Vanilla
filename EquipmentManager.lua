@@ -43,19 +43,63 @@ frame:SetScript("OnEvent", function()
 	frame:SetBackdrop(INSET_BACKDROP)
   end
 
-  -- -----------------------------------------------------------------------
   -- Location-bitfield helpers
-  -- -----------------------------------------------------------------------
   local LOC_PLAYER = 1048576
   local LOC_BAGS   = 2097152
+  local LOC_BANK   = 4194304
 
   local function UnpackLocation(location)
 	local r    = {}
 	r.isPlayer = (math.mod(math.floor(location / LOC_PLAYER), 2) == 1)
 	r.isBags   = (math.mod(math.floor(location / LOC_BAGS),   2) == 1)
+	r.isBank   = (math.mod(math.floor(location / LOC_BANK),   2) == 1)
 	r.slot	   = math.mod(location, 256)
 	r.bag	   = math.mod(math.floor(location / 256), 256)
+	if r.isBank and r.isBags then
+	  r.bag = r.bag + 4
+	end
 	return r
+  end
+
+  EquipmentManagerDB = EquipmentManagerDB or {}
+  local db = EquipmentManagerDB
+  db.triggers = db.triggers or {}
+  db.nextID	  = db.nextID or 1
+  db.bank	  = db.bank or {}
+  db.config	  = db.config or {}
+  if db.config.autoswitch == nil then db.config.autoswitch = true end
+  if db.config.announce == nil then db.config.announce = true end
+  if db.config.unusedquality == nil then db.config.unusedquality = 0 end
+  if db.config.unusedbank == nil then db.config.unusedbank = true end
+  if not db.ignore then
+	-- Ignored items; can be unignored.
+	db.ignore = {
+	  [2901]  = true,  -- Mining Pick
+	  [5956]  = true,  -- Blacksmith Hammer
+	  [6219]  = true,  -- Arclight Spanner
+	  [7005]  = true,  -- Skinning Knife
+	  [7297]  = true,  -- Morbent's Bane
+	  [10696] = true,  -- Enchanted Azsharite Felbane Sword
+	  [10697] = true,  -- Enchanted Azsharite Felbane Dagger
+	  [10698] = true,  -- Enchanted Azsharite Felbane Staff
+	  [20406] = true,  -- Twilight Cultist Mantle
+	  [20407] = true,  -- Twilight Cultist Robe
+	  [20408] = true,  -- Twilight Cultist Cowl
+	}
+  end
+
+  local RESTORE_SET_NAME = "EM Auto-Restore"
+
+  local function IsRestoreSet(setID)
+	return setID and C_EquipmentSet.GetEquipmentSetInfo(setID) == RESTORE_SET_NAME
+  end
+
+  local function GetVisibleSetIDs()
+	local result = {}
+	for _, id in ipairs(C_EquipmentSet.GetEquipmentSetIDs() or {}) do
+	  if not IsRestoreSet(id) then table.insert(result, id) end
+	end
+	return result
   end
 
   local function PlayerEquipLocation(invSlot)
@@ -64,9 +108,7 @@ frame:SetScript("OnEvent", function()
 
   local WEAPON_SLOTS = { [16] = true, [17] = true, [18] = true }
 
-  -- -----------------------------------------------------------------------
   -- State - reset on every login so character switching works correctly.
-  -- -----------------------------------------------------------------------
   local SET_ROW_HEIGHT	  = 34
   local LIST_VISIBLE_ROWS = 8
   local LIST_ROW_STRIDE   = SET_ROW_HEIGHT + 1
@@ -129,18 +171,12 @@ frame:SetScript("OnEvent", function()
 	  UIErrorsFrame:AddMessage(ERR_CLIENT_LOCKED_OUT or "You are locked out", 1, .1, .1, 1)
 	  return
 	end
-	local name, _, _, _, _, _, _, numMissing = C_EquipmentSet.GetEquipmentSetInfo(setID)
-	if numMissing and numMissing > 0 then
-	  UIErrorsFrame:AddMessage(string.format(ERR_EQUIPMENT_MANAGER_MISSING_ITEM_S, name), 1, .1, .1, 1)
-	end
 	PlaySound("INTERFACESOUND_CHARWINDOWTAB")
 	ClearCursor()
 	C_EquipmentSet.UseEquipmentSet(setID)
   end
 
-  -- -----------------------------------------------------------------------
   -- Icon picker data
-  -- -----------------------------------------------------------------------
   local QUESTION_MARK	 = "INTERFACE\\ICONS\\INV_MISC_QUESTIONMARK"
   local selectedIconPath = QUESTION_MARK
   local iconFilterMode   = "all"
@@ -287,12 +323,10 @@ frame:SetScript("OnEvent", function()
   local OpenNamePopup
   local eqmgr = {}
 
-  -- -----------------------------------------------------------------------
   -- Main sidecar frame
-  -- -----------------------------------------------------------------------
   local frame = CreateFrame("Frame", "STEquipmentManagerFrame", UIParent)
   frame:SetWidth(232)
-  frame:SetHeight(350)
+  frame:SetHeight(380)
   frame:SetFrameStrata("HIGH")
   ApplyDialogBackdrop(frame)
   frame:Hide()
@@ -319,9 +353,7 @@ frame:SetScript("OnEvent", function()
 	frame:Hide()
   end)
 
-  -- -----------------------------------------------------------------------
   -- Toggle button on the paperdoll
-  -- -----------------------------------------------------------------------
   local toggleBtn = CreateFrame("Button", "STEqMgrToggleButton", PaperDollFrame)
   toggleBtn:SetWidth(28)
   toggleBtn:SetHeight(28)
@@ -346,9 +378,7 @@ frame:SetScript("OnEvent", function()
 	end
   end)
 
-  -- -----------------------------------------------------------------------
   -- New Set, Equip, Save buttons
-  -- -----------------------------------------------------------------------
   local btnNewSet = CreateFrame("Button", "STEqMgrNewSet", frame, "UIPanelButtonTemplate")
   btnNewSet:SetWidth(68); btnNewSet:SetHeight(22)
   btnNewSet:SetText(PAPERDOLL_NEWEQUIPMENTSET)
@@ -386,12 +416,10 @@ frame:SetScript("OnEvent", function()
 	StaticPopup_Show("STEQMGR_SAVE_CONFIRM")
   end)
 
-  -- -----------------------------------------------------------------------
   -- Set list
-  -- -----------------------------------------------------------------------
   local listFrame = CreateFrame("Frame", nil, frame)
   listFrame:SetPoint("TOPLEFT",		frame, "TOPLEFT",	  14, -52)
-  listFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 14)
+  listFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 44)
   ApplyInsetBackdrop(listFrame)
 
   listFrame.offset = 0
@@ -570,9 +598,7 @@ frame:SetScript("OnEvent", function()
   end)
 
 
-  -- -----------------------------------------------------------------------
   -- Name/Icon popup
-  -- -----------------------------------------------------------------------
   local ICON_GRID_COLS = 11
   local ICON_GRID_ROWS = 9
   local ICON_BTN_SIZE  = 34
@@ -888,9 +914,7 @@ frame:SetScript("OnEvent", function()
 	namePopup.editbox:SetFocus()
   end
 
-  -- -----------------------------------------------------------------------
   -- Equipment slot flyout
-  -- -----------------------------------------------------------------------
   local flyout = CreateFrame("Frame", "STEqMgrFlyout", UIParent)
   flyout:SetFrameStrata("DIALOG")
   flyout:SetWidth(43); flyout:SetHeight(43)
@@ -1032,6 +1056,39 @@ frame:SetScript("OnEvent", function()
 	popout.highlightTex:SetTexCoord(unpack(hc))
   end
 
+  -- Rarity-coloured borders on flyout items (oGlow-style glow).
+  -- If oGlow is loaded it already hooks STEqMgrFlyout, so we defer to it.
+  local function UpdateFlyoutGlow(b)
+	local glow = b.emGlow
+	if not glow then
+	  glow = b:CreateTexture(nil, "OVERLAY")
+	  glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+	  glow:SetBlendMode("ADD")
+	  glow:SetAlpha(0.8)
+	  glow:SetWidth(70); glow:SetHeight(70)
+	  glow:SetPoint("CENTER", b, "CENTER", 0, 0)
+	  b.emGlow = glow
+	end
+	glow:Hide()
+	if oGlow or IsAddOnLoaded("oGlow") then return end
+	local link
+	if b.bag then
+	  link = GetContainerItemLink(b.bag, b.slot)
+	elseif b.invSlot then
+	  link = GetInventoryItemLink("player", b.invSlot)
+	end
+	if not link then return end
+	local _, _, hex = string.find(link, "|c(%x%x%x%x%x%x%x%x)|")
+	if not hex then return end
+	hex = string.lower(string.sub(hex, 3))
+	if hex == "9d9d9d" or hex == "ffffff" then return end
+	local r = tonumber(string.sub(hex, 1, 2), 16) / 255
+	local g = tonumber(string.sub(hex, 3, 4), 16) / 255
+	local bl = tonumber(string.sub(hex, 5, 6), 16) / 255
+	glow:SetVertexColor(r, g, bl)
+	glow:Show()
+  end
+
   local flyoutBtnCount = 0
   local function MakeFlyoutButton()
 	flyoutBtnCount = flyoutBtnCount + 1
@@ -1057,7 +1114,12 @@ frame:SetScript("OnEvent", function()
 		GameTooltip:Show()
 	  elseif this.bag then
 		GameTooltip:SetOwner(buttonAnchor, "ANCHOR_RIGHT", 6, -buttonAnchor:GetHeight() - -6)
-		GameTooltip:SetBagItem(this.bag, this.slot)
+		if this.bag == -1 then
+		  local link = GetContainerItemLink(-1, this.slot)
+		  if link then GameTooltip:SetHyperlink(link) end
+		else
+		  GameTooltip:SetBagItem(this.bag, this.slot)
+		end
 		GameTooltip:Show()
 	  elseif this.invSlot then
 		GameTooltip:SetOwner(buttonAnchor, "ANCHOR_RIGHT", 6, -buttonAnchor:GetHeight() - -6)
@@ -1090,6 +1152,51 @@ frame:SetScript("OnEvent", function()
 	GetInventoryItemsForSlot(invSlot, items)
 	items[PlayerEquipLocation(invSlot)] = nil
 
+	if BankFrame and BankFrame:IsVisible() then
+	  local SLOT_EQUIPLOCS = {
+		[1]  = { INVTYPE_HEAD=true },
+		[2]  = { INVTYPE_NECK=true },
+		[3]  = { INVTYPE_SHOULDER=true },
+		[4]  = { INVTYPE_BODY=true },
+		[5]  = { INVTYPE_CHEST=true, INVTYPE_ROBE=true },
+		[6]  = { INVTYPE_WAIST=true },
+		[7]  = { INVTYPE_LEGS=true },
+		[8]  = { INVTYPE_FEET=true },
+		[9]  = { INVTYPE_WRIST=true },
+		[10] = { INVTYPE_HAND=true },
+		[11] = { INVTYPE_FINGER=true },
+		[12] = { INVTYPE_FINGER=true },
+		[13] = { INVTYPE_TRINKET=true },
+		[14] = { INVTYPE_TRINKET=true },
+		[15] = { INVTYPE_CLOAK=true },
+		[16] = { INVTYPE_WEAPON=true, INVTYPE_2HWEAPON=true, INVTYPE_WEAPONMAINHAND=true },
+		[17] = { INVTYPE_WEAPON=true, INVTYPE_SHIELD=true, INVTYPE_WEAPONOFFHAND=true, INVTYPE_HOLDABLE=true },
+		[18] = { INVTYPE_RANGED=true, INVTYPE_THROWN=true, INVTYPE_RANGEDRIGHT=true },
+		[19] = { INVTYPE_TABARD=true },
+	  }
+	  local eligibleLocs = SLOT_EQUIPLOCS[invSlot]
+	  if eligibleLocs then
+		local function tryAddBank(bag, slot, location)
+		  local link = GetContainerItemLink(bag, slot)
+		  if not link then return end
+		  local _, _, _, equipLoc = C_Item.GetItemInfoInstant(link)
+		  if equipLoc and eligibleLocs[equipLoc] then
+			items[location] = true
+		  end
+		end
+		-- Main bank: bag ID -1, slots 1..24
+		for slot = 1, 24 do
+		  tryAddBank(-1, slot, LOC_BANK + slot)
+		end
+		-- Bank bags: IDs 5..10; stored in bitfield as bag-4
+		for bag = 5, 10 do
+		  for slot = 1, GetContainerNumSlots(bag) do
+			tryAddBank(bag, slot, LOC_BANK + LOC_BAGS + ((bag - 4) * 256) + slot)
+		  end
+		end
+	  end
+	end
+
 	local ordered = {}
 	if GetInventoryItemID("player", invSlot) then
 	  table.insert(ordered, PLACEINBAGS_LOC)
@@ -1102,7 +1209,11 @@ frame:SetScript("OnEvent", function()
 	for location in pairs(items) do
 	  local loc = UnpackLocation(location)
 	  local itemID, tex
-	  if loc.isBags then
+	  if loc.isBank then
+		local bag = loc.isBags and loc.bag or -1
+		itemID = C_Container.GetContainerItemID(bag, loc.slot)
+		tex = GetContainerItemInfo(bag, loc.slot)
+	  elseif loc.isBags then
 		itemID = C_Container.GetContainerItemID(loc.bag, loc.slot)
 		tex = GetContainerItemInfo(loc.bag, loc.slot)
 	  else
@@ -1149,7 +1260,7 @@ frame:SetScript("OnEvent", function()
 	for i, b in ipairs(flyout.buttons) do
 	  if i <= num then
 		local location = ordered[i]
-		b.specialAction = nil; b.bag = nil; b.slot = nil; b.invSlot = nil
+		b.specialAction = nil; b.bag = nil; b.slot = nil; b.invSlot = nil; b.bankSlot = nil
 
 		if location == PLACEINBAGS_LOC then
 		  b.specialAction = "placeInBags"
@@ -1165,7 +1276,13 @@ frame:SetScript("OnEvent", function()
 		  b.count:SetText("")
 		else
 		  local loc = UnpackLocation(location)
-		  if loc.isBags then
+		  if loc.isBank then
+			local bag = loc.isBags and loc.bag or -1
+			b.bag = bag; b.slot = loc.slot
+			local tex, count = GetContainerItemInfo(bag, loc.slot)
+			b.icon:SetTexture(tex)
+			b.count:SetText((count and count > 1) and count or "")
+		  elseif loc.isBags then
 			b.bag = loc.bag; b.slot = loc.slot
 			local tex, count = GetContainerItemInfo(loc.bag, loc.slot)
 			b.icon:SetTexture(tex)
@@ -1176,6 +1293,8 @@ frame:SetScript("OnEvent", function()
 			b.count:SetText("")
 		  end
 		end
+
+		UpdateFlyoutGlow(b)
 
 		local col = math.mod(i - 1, FLYOUT_COLS)
 		local row = math.floor((i - 1) / FLYOUT_COLS)
@@ -1241,9 +1360,7 @@ frame:SetScript("OnEvent", function()
 	for _, hl in pairs(slotHighlights) do hl:Hide() end
   end)
 
-  -- -----------------------------------------------------------------------
   -- Paperdoll slot hooks
-  -- -----------------------------------------------------------------------
   local CHAR_SLOT_NAMES = {
 	"HeadSlot", "NeckSlot", "ShoulderSlot", "BackSlot", "ChestSlot",
 	"ShirtSlot", "TabardSlot", "WristSlot", "HandsSlot", "WaistSlot",
@@ -1421,11 +1538,9 @@ frame:SetScript("OnEvent", function()
 	end
   end
 
-  -- -----------------------------------------------------------------------
   -- Refresh
-  -- -----------------------------------------------------------------------
   function eqmgr.Refresh()
-	local ids	  = C_EquipmentSet.GetEquipmentSetIDs() or {}
+	local ids	  = GetVisibleSetIDs()
 	local numSets = table.getn(ids)
 
 	if numSets > 0 then
@@ -1486,11 +1601,1423 @@ frame:SetScript("OnEvent", function()
 
 	if selectedSetID then btnEquip:Enable(); btnSave:Enable()
 	else btnEquip:Disable(); btnSave:Disable() end
+
+	if eqmgr.RefreshExtras then eqmgr.RefreshExtras() end
   end
 
-  -- -----------------------------------------------------------------------
+  local function SetupExtras()
+
+  -- Shared widget helpers
+  local widgetCount = 0
+  local function NextName(prefix)
+	widgetCount = widgetCount + 1
+	return "STEqMgr" .. prefix .. widgetCount
+  end
+
+  local function CreateCheckbox(parent, label, labelOnLeft)
+	local cb = CreateFrame("CheckButton", NextName("Check"), parent, "UICheckButtonTemplate")
+	cb:SetWidth(24); cb:SetHeight(24)
+	local builtin = _G[cb:GetName() .. "Text"]
+	if builtin then builtin:SetText("") end
+	if label then
+	  cb.label = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	  if labelOnLeft then
+		cb.label:SetPoint("RIGHT", cb, "LEFT", -2, 1)
+	  else
+		cb.label:SetPoint("LEFT", cb, "RIGHT", 2, 1)
+	  end
+	  cb.label:SetText(label)
+	end
+	return cb
+  end
+
+  local function CreateArrowButton(parent, dir)
+	local b = CreateFrame("Button", nil, parent)
+	b:SetWidth(18); b:SetHeight(18)
+	local base = (dir == "up") and "Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-"
+	  or "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-"
+	b:SetNormalTexture(base .. "Up")
+	b:SetPushedTexture(base .. "Down")
+	b:SetDisabledTexture(base .. "Disabled")
+	b:SetHighlightTexture(base .. "Highlight", "ADD")
+	return b
+  end
+
+  local function CreateDeleteButton(parent)
+	local b = CreateFrame("Button", nil, parent)
+	b:SetWidth(20); b:SetHeight(20)
+	b:SetNormalTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Up")
+	b:SetPushedTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Down")
+	b:SetHighlightTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight", "ADD")
+	return b
+  end
+
+  -- Dropdown built on UIDropDownMenuTemplate. dd.menuFunc returns a list of
+  -- { text, value, func } entries, rebuilt every time the menu opens.
+  local function CreateDropdown(parent, width)
+	local dd = CreateFrame("Frame", NextName("Dropdown"), parent, "UIDropDownMenuTemplate")
+	UIDropDownMenu_SetWidth(width, dd)
+	dd.initialize = function()
+	  if not dd.menuFunc then return end
+	  for _, e in ipairs(dd.menuFunc()) do
+		local info = {}
+		info.text	 = e.text
+		info.value	 = e.value
+		info.func	 = e.func
+		info.checked = (dd.selectedValue ~= nil and dd.selectedValue == e.value) and 1 or nil
+		UIDropDownMenu_AddButton(info)
+	  end
+	end
+	return dd
+  end
+
+  -- Select an entry by value instead of index; shows its text.
+  local function SelectDropdownValue(dd, value)
+	dd.selectedValue = value
+	if dd.menuFunc then
+	  for _, e in ipairs(dd.menuFunc()) do
+		if e.value == value then
+		  UIDropDownMenu_SetText(e.text, dd)
+		  return
+		end
+	  end
+	end
+	UIDropDownMenu_SetText("", dd)
+  end
+
+  local function Print(msg)
+	DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccEquipment Manager|r: " .. msg)
+  end
+
+  -- Strips a full item link down to the "item:..." string 1.12 tooltips want.
+  local function ItemString(link)
+	if not link then return nil end
+	local _, _, s = string.find(link, "(item:[%-%d:]+)")
+	return s or link
+  end
+
+  local subPanels = {}
+  local function CreateSubPanel(name, width, height, titleText)
+	local p = CreateFrame("Frame", name, frame)
+	p:SetWidth(width); p:SetHeight(height)
+	p:SetFrameStrata("HIGH")
+	p:SetPoint("TOPLEFT", frame, "TOPRIGHT", -4, 0)
+	p:EnableMouse(true)
+	ApplyDialogBackdrop(p)
+	p:Hide()
+
+	p.title = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	p.title:SetPoint("TOP", p, "TOP", 0, -14)
+	p.title:SetText(titleText)
+
+	p.close = CreateFrame("Button", name .. "Close", p, "UIPanelCloseButton")
+	p.close:SetPoint("TOPRIGHT", p, "TOPRIGHT", 4, 4)
+	p.close:SetScript("OnClick", function()
+	  PlaySound("INTERFACESOUND_BACKPACKCLOSE")
+	  p:Hide()
+	end)
+
+	table.insert(subPanels, p)
+	return p
+  end
+
+  local function ToggleSubPanel(p)
+	if p:IsShown() then
+	  PlaySound("INTERFACESOUND_BACKPACKCLOSE")
+	  p:Hide()
+	  return
+	end
+	for _, other in ipairs(subPanels) do other:Hide() end
+	PlaySound("INTERFACESOUND_BACKPACKOPEN")
+	p:Show()
+  end
+
+  -- Items not in any set
+  local WHERE_ORDER = { equipped = 1, bags = 2, bank = 3 }
+  local BANK_BAGS	= { -1, 5, 6, 7, 8, 9, 10 }  -- main bank, bank bags
+
+  local bankOpen = false
+
+  -- Returns the list of equippable items that no equipment set references,
+  -- plus how many of those are on the ignore list. Ignored items are only
+  -- included in the list when includeIgnored is set.
+  local function ScanUnusedItems(includeIgnored)
+	local minQuality = tonumber(db.config.unusedquality) or 0
+	local result, numIgnored = {}, 0
+
+	local function Consider(entry)
+	  if not entry.itemID then return end
+	  entry.icon	= C_Item.GetItemIconByID(entry.itemID)
+	  entry.quality = C_Item.GetItemQualityByID(entry.itemID) or 1
+	  if entry.quality < minQuality then return end
+	  if db.ignore[entry.itemID] then
+		numIgnored = numIgnored + 1
+		if not includeIgnored then return end
+		entry.ignored = true
+	  end
+	  table.insert(result, entry)
+	end
+
+	-- Packed location of every item some set uses. Paperdoll and bag items
+	-- always resolve, so these match GetInventoryItemsForSlot's keys.
+	local inSet = {}
+	for _, setID in ipairs(GetVisibleSetIDs()) do
+	  for _, location in pairs(C_EquipmentSet.GetItemLocations(setID) or {}) do
+		inSet[location] = true
+	  end
+	end
+
+	-- Everything on the paperdoll or in the bags that fits a gear slot,
+	-- keyed by packed location (rings and trinkets fit two slots).
+	local items = {}
+	for invSlot = 1, 19 do GetInventoryItemsForSlot(invSlot, items) end
+
+	for location in pairs(items) do
+	  if not inSet[location] then
+		local loc = UnpackLocation(location)
+		if not loc.isBank then
+		  local link
+		  if loc.isBags then
+			link = GetContainerItemLink(loc.bag, loc.slot)
+		  else
+			link = GetInventoryItemLink("player", loc.slot)
+		  end
+		  if link then
+			Consider({
+			  where  = loc.isBags and "bags" or "equipped",
+			  bag	 = loc.isBags and loc.bag or nil,
+			  slot	 = loc.slot,
+			  itemID = (C_Item.GetItemInfoInstant(link)),
+			  link	 = link,
+			})
+		  end
+		end
+	  end
+	end
+
+	if db.config.unusedbank then
+	  for _, item in ipairs(db.bank) do
+		if not item.inSet then
+		  Consider({ where = "bank", bag = item.bag, slot = item.slot, itemID = item.id, link = item.link })
+		end
+	  end
+	end
+
+	table.sort(result, function(a, b)
+	  if a.where ~= b.where then return WHERE_ORDER[a.where] < WHERE_ORDER[b.where] end
+	  if a.quality ~= b.quality then return a.quality > b.quality end
+	  if a.itemID ~= b.itemID then return a.itemID < b.itemID end
+	  if a.bag ~= b.bag then return (a.bag or 0) < (b.bag or 0) end
+	  return a.slot < b.slot
+	end)
+
+	return result, numIgnored
+  end
+
+  -- Snapshot the bank while it's open so its items stay listed afterwards.
+  -- Set membership is recorded now as well: ClassicAPI only resolves set
+  -- items in the bank while the bank window is open.
+  local function ScanBank()
+	local snapshot = {}
+	for _, bag in ipairs(BANK_BAGS) do
+	  for slot = 1, (GetContainerNumSlots(bag) or 0) do
+		local itemID = C_Container.GetContainerItemID(bag, slot)
+		if itemID then
+		  local link = GetContainerItemLink(bag, slot)
+		  if link and C_Item.IsEquippableItem(link) then
+			table.insert(snapshot, {
+			  id = itemID, link = link, bag = bag, slot = slot,
+			  inSet = C_Container.GetContainerItemEquipmentSetInfo(bag, slot) and true or nil,
+			})
+		  end
+		end
+	  end
+	end
+	db.bank = snapshot
+  end
+
+  local UNUSED_COLS, UNUSED_ROWS = 7, 8
+  local UNUSED_SIZE, UNUSED_GAP	 = 30, 4
+  local UNUSED_STRIDE			 = UNUSED_SIZE + UNUSED_GAP
+
+  local unusedPanel = CreateSubPanel("STEqMgrUnusedFrame",
+	UNUSED_COLS * UNUSED_STRIDE + 44, 440, "Items Not In Any Set")
+  unusedPanel.offset = 0  -- first visible row
+
+  unusedPanel.info = unusedPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  unusedPanel.info:SetPoint("TOPLEFT", unusedPanel, "TOPLEFT", 20, -40)
+  unusedPanel.info:SetJustifyH("LEFT")
+
+  unusedPanel.showIgnored = CreateCheckbox(unusedPanel, "Show Ignored", true)
+  unusedPanel.showIgnored:SetPoint("TOPRIGHT", unusedPanel, "TOPRIGHT", -16, -32)
+
+  local unusedInset = CreateFrame("Frame", nil, unusedPanel)
+  unusedInset:SetPoint("TOPLEFT", unusedPanel, "TOPLEFT", 14, -58)
+  unusedInset:SetWidth(UNUSED_COLS * UNUSED_STRIDE + 16)
+  unusedInset:SetHeight(UNUSED_ROWS * UNUSED_STRIDE + 16)
+  ApplyInsetBackdrop(unusedInset)
+
+  local unusedGrid = CreateFrame("Frame", nil, unusedInset)
+  unusedGrid:SetPoint("TOPLEFT", unusedInset, "TOPLEFT", 8, -8)
+  unusedGrid:SetWidth(UNUSED_COLS * UNUSED_STRIDE)
+  unusedGrid:SetHeight(UNUSED_ROWS * UNUSED_STRIDE)
+  unusedGrid:EnableMouseWheel(true)
+
+  unusedPanel.empty = unusedPanel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+  unusedPanel.empty:SetPoint("CENTER", unusedGrid, "CENTER", 0, 0)
+  unusedPanel.empty:SetWidth(UNUSED_COLS * UNUSED_STRIDE - 10)
+  unusedPanel.empty:SetText("Every equippable item is part of a set.")
+
+  -- Options: minimum quality and whether to list the bank.
+  unusedPanel.qualityLabel = unusedPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  unusedPanel.qualityLabel:SetPoint("TOPLEFT", unusedInset, "BOTTOMLEFT", 6, -12)
+  unusedPanel.qualityLabel:SetText("Min. Quality")
+
+  local ddQuality = CreateDropdown(unusedPanel, 90)
+  ddQuality:SetPoint("LEFT", unusedPanel.qualityLabel, "RIGHT", -10, -2)
+
+  unusedPanel.includeBank = CreateCheckbox(unusedPanel, "Bank", true)
+  unusedPanel.includeBank:SetPoint("TOPRIGHT", unusedInset, "BOTTOMRIGHT", -2, -5)
+
+  unusedPanel.hint = unusedPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  unusedPanel.hint:SetPoint("BOTTOMLEFT", unusedPanel, "BOTTOMLEFT", 20, 18)
+  unusedPanel.hint:SetPoint("BOTTOMRIGHT", unusedPanel, "BOTTOMRIGHT", -20, 18)
+  unusedPanel.hint:SetJustifyH("LEFT")
+  unusedPanel.hint:SetText("Shift-Click: Link  Ctrl-Click: Preview\nRight-Click: Ignore / Unignore")
+
+  local RefreshUnusedPanel  -- forward decl
+  local unusedButtons = {}
+
+  -- Bag highlight: while the panel is open, items of the list glow in the
+  -- Blizzard bag and bank frames and every other item is dimmed.
+  local bagHighlight = { active = false, locs = {}, hooked = false }
+
+  local function ApplyBagHighlight(f, bag, slot)
+	if not f then return end
+	local o = f.stEqMgrUnused
+	local hasItem = bag and slot and GetContainerItemInfo(bag, slot)
+
+	if not bagHighlight.active or not hasItem or not f:IsVisible() then
+	  if o then o:Hide() end
+	  return
+	end
+
+	if not o then
+	  o = CreateFrame("Frame", nil, f)
+	  o:SetAllPoints(f)
+	  o:SetFrameLevel(f:GetFrameLevel() + 3)
+
+	  o.dim = o:CreateTexture(nil, "OVERLAY")
+	  o.dim:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
+	  o.dim:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
+	  o.dim:SetTexture(0, 0, 0, .7)
+
+	  o.glow = o:CreateTexture(nil, "OVERLAY")
+	  o.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+	  o.glow:SetBlendMode("ADD")
+	  o.glow:SetVertexColor(.2, 1, .2, 1)
+	  o.glow:SetPoint("CENTER", f, "CENTER", 0, 0)
+
+	  f.stEqMgrUnused = o
+	end
+
+	if bagHighlight.locs[bag] and bagHighlight.locs[bag][slot] then
+	  local w = f:GetWidth()
+	  if w and w > 0 then o.glow:SetWidth(w * 1.8); o.glow:SetHeight(w * 1.8) end
+	  o.dim:Hide()
+	  -- oGlow already draws a rarity border here; stacking our green on it
+	  -- tints it (e.g. purple + green = teal), so defer to oGlow.
+	  if oGlow or IsAddOnLoaded("oGlow") then o.glow:Hide() else o.glow:Show() end
+	else
+	  o.glow:Hide()
+	  o.dim:Show()
+	end
+	o:Show()
+  end
+
+  local MAX_CONTAINER_BUTTONS = MAX_CONTAINER_ITEMS or 36
+  local NUM_BANK_BUTTONS	  = NUM_BANKGENERIC_SLOTS or 24
+
+  local function DecorateContainerFrame(cf)
+	if not cf or not cf.GetName then return end
+	local name = cf:GetName()
+	local bag  = cf:GetID()
+	local shown = cf:IsShown()
+	for j = 1, MAX_CONTAINER_BUTTONS do
+	  local btn = _G[name .. "Item" .. j]
+	  if not btn then break end
+	  if shown and j <= (cf.size or 0) then
+		ApplyBagHighlight(btn, bag, btn:GetID())
+	  elseif btn.stEqMgrUnused then
+		btn.stEqMgrUnused:Hide()
+	  end
+	end
+  end
+
+  local function DecorateBankFrame()
+	for j = 1, NUM_BANK_BUTTONS do
+	  local btn = _G["BankFrameItem" .. j]
+	  if btn then ApplyBagHighlight(btn, -1, btn:GetID()) end
+	end
+  end
+
+  local function UpdateBagHighlights()
+	if not bagHighlight.hooked then
+	  -- Re-apply whenever Blizzard redraws a bag or bank slot.
+	  if ContainerFrame_Update then
+		hooksecurefunc("ContainerFrame_Update", function(cf)
+		  if bagHighlight.active then DecorateContainerFrame(cf) end
+		end)
+	  end
+	  if BankFrameItemButton_Update then
+		hooksecurefunc("BankFrameItemButton_Update", function(btn)
+		  if bagHighlight.active and btn and btn.GetID then
+			ApplyBagHighlight(btn, -1, btn:GetID())
+		  end
+		end)
+	  end
+	  bagHighlight.hooked = true
+	end
+	for i = 1, (NUM_CONTAINER_FRAMES or 12) do
+	  DecorateContainerFrame(_G["ContainerFrame" .. i])
+	end
+	DecorateBankFrame()
+  end
+
+  local WHERE_TAG  = { equipped = "|cff33ff33E|r", bags = "", bank = "|cff66aaffB|r" }
+  local WHERE_TEXT = { equipped = "Equipped", bags = "In Bags", bank = "In Bank" }
+
+  local function CreateUnusedButton(i)
+	local bname = NextName("UnusedBtn")
+	local b = CreateFrame("Button", bname, unusedGrid, "ActionButtonTemplate")
+	b:SetWidth(UNUSED_SIZE); b:SetHeight(UNUSED_SIZE)
+	b:SetNormalTexture("")
+	local col = math.mod(i - 1, UNUSED_COLS)
+	local row = math.floor((i - 1) / UNUSED_COLS)
+	b:SetPoint("TOPLEFT", unusedGrid, "TOPLEFT",
+	  col * UNUSED_STRIDE + UNUSED_GAP / 2, -row * UNUSED_STRIDE - UNUSED_GAP / 2)
+	b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+	b.icon = _G[bname .. "Icon"]
+
+	-- Quality colored border, like the bag slots in the modern client.
+	b.border = b:CreateTexture(nil, "OVERLAY")
+	b.border:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+	b.border:SetBlendMode("ADD")
+	b.border:SetWidth(UNUSED_SIZE * 1.8); b.border:SetHeight(UNUSED_SIZE * 1.8)
+	b.border:SetPoint("CENTER", b, "CENTER", 0, 0)
+	b.border:Hide()
+
+	b.tag = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+	b.tag:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
+
+	b:SetScript("OnEnter", function()
+	  local e = this.entry
+	  if not e then return end
+	  GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+	  if e.where == "equipped" then
+		GameTooltip:SetInventoryItem("player", e.slot)
+	  elseif e.where == "bags" then
+		GameTooltip:SetBagItem(e.bag, e.slot)
+	  else
+		GameTooltip:SetHyperlink(ItemString(e.link))
+	  end
+	  GameTooltip:AddLine(" ")
+	  GameTooltip:AddLine("Not part of any equipment set - " .. WHERE_TEXT[e.where], 1, .82, 0)
+	  if e.ignored then
+		GameTooltip:AddLine("Ignored (Right-Click to unignore)", .6, .6, .6)
+	  end
+	  GameTooltip:Show()
+	end)
+	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+	b:SetScript("OnClick", function()
+	  local e = this.entry
+	  if not e then return end
+	  if arg1 == "RightButton" then
+		db.ignore[e.itemID] = (not db.ignore[e.itemID]) and true or nil
+		GameTooltip:Hide()
+		PlaySound("igMainMenuOptionCheckBoxOn")
+		eqmgr.Refresh()
+	  elseif IsShiftKeyDown() then
+		if ChatFrameEditBox and ChatFrameEditBox:IsVisible() then ChatFrameEditBox:Insert(e.link) end
+	  elseif IsControlKeyDown() then
+		if DressUpItemLink then DressUpItemLink(e.link) end
+	  end
+	end)
+
+	return b
+  end
+
+  unusedGrid:SetScript("OnMouseWheel", function()
+	unusedPanel.offset = unusedPanel.offset - (arg1 or 0)
+	RefreshUnusedPanel()
+  end)
+
+  local QUALITY_OPTIONS = {}
+  for q = 0, 5 do
+	local r, g, b, hex = GetItemQualityColor(q)
+	local label = _G["ITEM_QUALITY" .. q .. "_DESC"] or tostring(q)
+	table.insert(QUALITY_OPTIONS, { value = q, text = (hex or "") .. label .. (hex and "|r" or "") })
+  end
+  ddQuality.menuFunc = function()
+	local menu = {}
+	for _, o in ipairs(QUALITY_OPTIONS) do
+	  local value = o.value
+	  table.insert(menu, { text = o.text, value = value, func = function()
+		db.config.unusedquality = value
+		eqmgr.Refresh()
+	  end })
+	end
+	return menu
+  end
+
+  function RefreshUnusedPanel()
+	local showIgnored = unusedPanel.showIgnored:GetChecked() and true or nil
+	local list, numIgnored = ScanUnusedItems(showIgnored)
+	local total = table.getn(list)
+	local numShownIgnored = showIgnored and numIgnored or 0
+	unusedPanel.info:SetText(string.format("%d items, %d ignored", total - numShownIgnored, numIgnored))
+
+	unusedPanel.includeBank:SetChecked(db.config.unusedbank and 1 or nil)
+	SelectDropdownValue(ddQuality, tonumber(db.config.unusedquality) or 0)
+
+	local totalRows = math.ceil(total / UNUSED_COLS)
+	local maxOffset = math.max(0, totalRows - UNUSED_ROWS)
+	if unusedPanel.offset > maxOffset then unusedPanel.offset = maxOffset end
+	if unusedPanel.offset < 0 then unusedPanel.offset = 0 end
+	local first = unusedPanel.offset * UNUSED_COLS
+
+	for i = 1, UNUSED_COLS * UNUSED_ROWS do
+	  local e = list[first + i]
+	  local b = unusedButtons[i]
+	  if e then
+		if not b then
+		  b = CreateUnusedButton(i)
+		  unusedButtons[i] = b
+		end
+		b.entry = e
+		b.icon:SetTexture(e.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+		b.icon:SetDesaturated(e.ignored and true or false)
+		b.icon:SetAlpha(e.ignored and .5 or 1)
+		b.tag:SetText(WHERE_TAG[e.where] or "")
+		if (e.quality or 1) > 1 then
+		  local r, g, bl = GetItemQualityColor(e.quality)
+		  b.border:SetVertexColor(r, g, bl, 1)
+		  b.border:Show()
+		else
+		  b.border:Hide()
+		end
+		b:Show()
+	  elseif b then
+		b.entry = nil
+		b:Hide()
+	  end
+	end
+
+	if total == 0 then unusedPanel.empty:Show() else unusedPanel.empty:Hide() end
+
+	bagHighlight.active = true
+	bagHighlight.locs = {}
+	for _, e in ipairs(list) do
+	  if e.bag then
+		bagHighlight.locs[e.bag] = bagHighlight.locs[e.bag] or {}
+		bagHighlight.locs[e.bag][e.slot] = true
+	  end
+	end
+	UpdateBagHighlights()
+  end
+
+  unusedPanel.showIgnored:SetScript("OnClick", function() RefreshUnusedPanel() end)
+  unusedPanel.includeBank:SetScript("OnClick", function()
+	db.config.unusedbank = this:GetChecked() and true or false
+	eqmgr.Refresh()
+  end)
+  unusedPanel:SetScript("OnShow", function() RefreshUnusedPanel() end)
+  unusedPanel:SetScript("OnHide", function()
+	CloseDropDownMenus()
+	bagHighlight.active = false
+	UpdateBagHighlights()
+  end)
+
+  local bankEvents = CreateFrame("Frame")
+  bankEvents:RegisterEvent("BANKFRAME_OPENED")
+  bankEvents:RegisterEvent("BANKFRAME_CLOSED")
+  bankEvents:RegisterEvent("PLAYERBANKSLOTS_CHANGED")
+  bankEvents:RegisterEvent("BAG_UPDATE_DELAYED")
+  bankEvents:RegisterEvent("EQUIPMENT_SETS_CHANGED")
+  bankEvents:SetScript("OnEvent", function()
+	if event == "BANKFRAME_OPENED" then
+	  bankOpen = true
+	elseif event == "BANKFRAME_CLOSED" then
+	  bankOpen = false
+	  return
+	end
+	if not bankOpen then return end
+	ScanBank()
+	if frame:IsShown() then eqmgr.Refresh() end
+  end)
+
+  -- Automatic set switching (triggers)
+  local _, playerClass = UnitClass("player")
+
+  -- Shapeshift form IDs as GetShapeshiftFormID reports them on this client
+  -- (SpellShapeshiftForm.dbc). A value can list several IDs so e.g.
+  -- "Bear Form" covers Dire Bear Form too.
+  local FORM_OPTIONS = {
+	DRUID = {
+	  { value = "0",	text = "No Form (Caster)" },
+	  { value = "5,8",	text = "Bear Form" },
+	  { value = "1",	text = "Cat Form" },
+	  { value = "3,11", text = "Travel Form" },
+	  { value = "4",	text = "Aquatic Form" },
+	  { value = "31",	text = "Moonkin Form" },
+	  { value = "2,9",	text = "Tree of Life Form" },
+	},
+	WARRIOR = {
+	  { value = "17", text = "Battle Stance" },
+	  { value = "18", text = "Defensive Stance" },
+	  { value = "19", text = "Berserker Stance" },
+	},
+	ROGUE  = { { value = "30", text = "Stealth" } },
+	SHAMAN = { { value = "16", text = "Ghost Wolf" } },
+	PRIEST = { { value = "28", text = "Shadowform" } },
+  }
+  local myForms = FORM_OPTIONS[playerClass]
+  if myForms then table.insert(myForms, { value = "any", text = "Any Form" }) end
+
+  local INSTANCE_OPTIONS = {
+	{ value = "party", text = "Dungeon" },
+	{ value = "raid",  text = "Raid" },
+	{ value = "pvp",   text = "Battleground" },
+	{ value = "none",  text = "Open World" },
+  }
+
+  -- value: nil (no parameter), "list" (dropdown from .options) or "text".
+  local TRIGGER_TYPES = {
+	{ key = "mounted",	text = "Mounted" },
+	{ key = "swimming", text = "Swimming" },
+	{ key = "dining",	text = "Eating / Drinking" },
+	{ key = "resting",	text = "Resting (Inn / City)" },
+	{ key = "stealth",	text = "Stealthed" },
+	{ key = "form",		text = "Shapeshift Form / Stance", value = "list", options = myForms },
+	{ key = "instance", text = "Instance Type", value = "list", options = INSTANCE_OPTIONS },
+	{ key = "zone",		text = "Zone", value = "text" },
+	{ key = "boss",		text = "Targeting A Boss" },
+	{ key = "time",		text = "Time Of Day", value = "text" },
+  }
+  local TRIGGER_TYPE = {}
+  for _, info in ipairs(TRIGGER_TYPES) do TRIGGER_TYPE[info.key] = info end
+
+  local function DefaultTriggerValue(key)
+	if key == "form" then return myForms and myForms[1].value end
+	if key == "instance" then return "raid" end
+	if key == "zone" then return GetRealZoneText() end
+	if key == "time" then return "20:00-23:00" end
+  end
+
+  local function DescribeTrigger(t)
+	local info = TRIGGER_TYPE[t.type]
+	if not info then return "?" end
+	if info.value == "list" then
+	  for _, o in ipairs(info.options or {}) do
+		if o.value == t.value then return info.text .. ": " .. o.text end
+	  end
+	  return info.text
+	elseif info.value == "text" then
+	  return info.text .. ": " .. (t.value or "")
+	end
+	return info.text
+  end
+
+  -- Condition checks
+
+  -- Every food and drink buff shares the name of the base Food (433) or
+  -- Drink (430) aura, so their localized names identify all of them.
+  local DINING_AURAS = {}
+  for _, spellID in ipairs({ 433, 430 }) do
+	local n = C_Spell.GetSpellName(spellID)
+	if n then table.insert(DINING_AURAS, n) end
+  end
+
+  -- Like Outfitter: the dining set stays on only while there's still
+  -- health or mana to regenerate, so it comes off as soon as you're full.
+  local function IsDining()
+	local healthFull = UnitHealth("player") >= UnitHealthMax("player")
+	local manaFull = UnitPowerType("player") ~= 0 or UnitMana("player") >= UnitManaMax("player")
+	if healthFull and manaFull then return false end
+	for _, name in ipairs(DINING_AURAS) do
+	  if C_UnitAuras.GetAuraDataBySpellName("player", name, "HELPFUL") then return true end
+	end
+	return false
+  end
+
+  local function InForm(value)
+	local formID = GetShapeshiftFormID() or 0
+	if value == "any" then return formID ~= 0 end
+	for _, id in ipairs({ strsplit(",", value or "") }) do
+	  if tonumber(id) == formID then return true end
+	end
+	return false
+  end
+
+  -- Zone trigger values are "zone; subzone; ..." as typed or added with "Here".
+  local function ZoneEntries(value)
+	local entries = {}
+	for _, entry in ipairs({ strsplit(";", value or "") }) do
+	  entry = string.lower(strtrim(entry))
+	  if entry ~= "" then table.insert(entries, entry) end
+	end
+	return entries
+  end
+
+  local function InZone(value)
+	local zone	  = string.lower(GetRealZoneText() or "")
+	local subzone = string.lower(GetSubZoneText() or "")
+	local minimap = string.lower(GetMinimapZoneText() or "")
+	for _, entry in ipairs(ZoneEntries(value)) do
+	  if entry == zone or entry == subzone or entry == minimap then return true end
+	end
+	return false
+  end
+
+  local function ParseTimeWindow(value)
+	local _, _, h1, m1, h2, m2 = string.find(value or "",
+	  "^%s*(%d%d?):(%d%d)%s*%-%s*(%d%d?):(%d%d)%s*$")
+	if not h1 then return nil end
+	return tonumber(h1) * 60 + tonumber(m1), tonumber(h2) * 60 + tonumber(m2)
+  end
+
+  local function InTimeWindow(value)
+	local from, to = ParseTimeWindow(value)
+	if not from then return false end
+	local now = tonumber(date("%H")) * 60 + tonumber(date("%M"))
+	if from <= to then return now >= from and now < to end
+	return now >= from or now < to  -- window wraps past midnight
+  end
+
+  local function TargetIsBoss()
+	if not UnitExists("target") or UnitIsDead("target") then return false end
+	if not UnitCanAttack("player", "target") or UnitIsPlayer("target") then return false end
+	return UnitClassification("target") == "worldboss" or UnitLevel("target") == -1
+  end
+
+  local function ConditionActive(t)
+	local key = t.type
+	if key == "mounted" then return IsMounted() and true or false
+	elseif key == "swimming" then return IsSwimming() and true or false
+	elseif key == "dining" then return IsDining()
+	elseif key == "resting" then return IsResting() and true or false
+	elseif key == "stealth" then return IsStealthed() and true or false
+	elseif key == "form" then return InForm(t.value)
+	elseif key == "instance" then
+	  local _, instanceType = GetInstanceInfo()
+	  return instanceType == t.value
+	elseif key == "zone" then return InZone(t.value)
+	elseif key == "boss" then return TargetIsBoss()
+	elseif key == "time" then return InTimeWindow(t.value)
+	end
+	return false
+  end
+
+  -- Engine
+
+  -- forceApply: the active trigger was edited, equip its (new) set again.
+  local engine = { ready = false, timer = nil, poll = nil, forceApply = nil }
+
+  local function FindTrigger(id)
+	if not id then return nil end
+	for i, t in ipairs(db.triggers) do
+	  if t.id == id then return t, i end
+	end
+  end
+
+  local function SetExists(setID)
+	return setID and C_EquipmentSet.GetEquipmentSetInfo(setID) and not IsRestoreSet(setID)
+  end
+
+  local function TriggerUsable(t)
+	return t.enabled and SetExists(t.setID) and TRIGGER_TYPE[t.type] and true or false
+  end
+
+  -- Highest-priority (topmost) enabled trigger whose condition holds.
+  local function GetActiveTrigger()
+	for _, t in ipairs(db.triggers) do
+	  if TriggerUsable(t) and ConditionActive(t) then return t end
+	end
+  end
+
+  -- Whether the applied trigger differs from the one that should be, and
+  -- the one that should be.
+  local function NeedsSwitch()
+	local best = GetActiveTrigger()
+	return engine.forceApply or (best and best.id or 0) ~= (db.applied or 0), best
+  end
+
+  -- Gear can't change in combat or while dead, swapping mid-cast would
+  -- interrupt it, and only one set swap runs at a time: the switch waits.
+  local function SwapBlocked(setID)
+	if UnitAffectingCombat("player") or UnitIsDeadOrGhost("player") then return true end
+	if C_Spell.UnitCastingInfo("player") or C_Spell.UnitChannelInfo("player") then return true end
+	if CursorHasItem() or not C_EquipmentSet.CanUseEquipmentSets() then return true end
+	return C_EquipmentSet.EquipmentSetContainsLockedItems(setID)
+  end
+
+  -- A swap that's blocked or refused is retried by scheduling again.
+  local function TryEquip(setID)
+	return not SwapBlocked(setID) and C_EquipmentSet.UseEquipmentSet(setID)
+  end
+
+  -- Remember the gear worn before the first trigger fires. Only slots that
+  -- some trigger set actually changes are recorded, so restoring doesn't
+  -- undo unrelated gear changes made while the trigger was active.
+  local function TakeRestoreSnapshot()
+	local touched = {}
+	for _, t in ipairs(db.triggers) do
+	  if TriggerUsable(t) then
+		local ignored = {}
+		for _, s in ipairs(C_EquipmentSet.GetIgnoredSlots(t.setID) or {}) do ignored[s] = true end
+		for s = 1, 19 do
+		  if not ignored[s] then touched[s] = true end
+		end
+	  end
+	end
+
+	C_EquipmentSet.ClearIgnoredSlotsForSave()
+	for s = 1, 19 do
+	  if not touched[s] then C_EquipmentSet.IgnoreSlotForSave(s) end
+	end
+	local id = C_EquipmentSet.GetEquipmentSetID(RESTORE_SET_NAME)
+	if id then
+	  C_EquipmentSet.SaveEquipmentSet(id)
+	else
+	  C_EquipmentSet.CreateEquipmentSet(RESTORE_SET_NAME, "Spell_Nature_TimeStop")
+	end
+	C_EquipmentSet.ClearIgnoredSlotsForSave()
+  end
+
+  local function Announce(msg)
+	if db.config.announce then Print(msg) end
+  end
+
+  local function SetName(setID)
+	return (C_EquipmentSet.GetEquipmentSetInfo(setID)) or "?"
+  end
+
+  local RefreshTriggerPanel  -- forward decl
+  local Schedule			 -- forward decl
+
+  local function Evaluate()
+	if not engine.ready or not db.config.autoswitch then return end
+
+	local needed, best = NeedsSwitch()
+	if not needed then return end
+	local appliedID = db.applied or 0
+
+	if best then
+	  if SwapBlocked(best.setID) then return Schedule() end
+	  -- Only the first trigger in a chain records what to go back to.
+	  if appliedID == 0 then TakeRestoreSnapshot() end
+	  if not C_EquipmentSet.UseEquipmentSet(best.setID) then return Schedule() end
+	  db.applied = best.id
+	  Announce(string.format("Equipping %s (%s)", SetName(best.setID), DescribeTrigger(best)))
+	else
+	  local prev = FindTrigger(appliedID)
+	  local leave = prev and prev.leave or "restore"
+	  local restoreID = C_EquipmentSet.GetEquipmentSetID(RESTORE_SET_NAME)
+	  if leave == "restore" and restoreID then
+		if not TryEquip(restoreID) then return Schedule() end
+		Announce("Restoring previous gear")
+	  elseif type(leave) == "number" and SetExists(leave) then
+		if not TryEquip(leave) then return Schedule() end
+		Announce(string.format("Equipping %s", SetName(leave)))
+	  end
+	  -- The swap copied the item GUIDs when it started; the set can go.
+	  if restoreID then C_EquipmentSet.DeleteEquipmentSet(restoreID) end
+	  db.applied = nil
+	end
+
+	engine.forceApply = nil
+	RefreshTriggerPanel()
+  end
+
+  -- Switch half a second after something changed, so bobbing at the water
+  -- surface or a quick target swap doesn't thrash gear. Also retries a
+  -- swap that's blocked.
+  function Schedule()
+	if engine.timer then return end
+	engine.timer = C_Timer.NewTimer(0.5, function()
+	  engine.timer = nil
+	  Evaluate()
+	end)
+  end
+
+  -- Swimming and the time of day fire no event, so those are polled while
+  -- a trigger needs them.
+  local POLLED = { swimming = true, time = true }
+
+  local engineEvents = CreateFrame("Frame")
+
+  -- Call after any change to the triggers or the autoswitch setting.
+  local function UpdateEngine()
+	local poll, dining = false, false
+	if db.config.autoswitch then
+	  for _, t in ipairs(db.triggers) do
+		if t.enabled and POLLED[t.type] then poll = true end
+		if t.enabled and t.type == "dining" then dining = true end
+	  end
+	end
+
+	-- The dining set comes off once health and mana are full; these fire
+	-- constantly in combat, so only listen while a dining trigger exists.
+	if dining then
+	  engineEvents:RegisterUnitEvent("UNIT_HEALTH", "player")
+	  engineEvents:RegisterUnitEvent("UNIT_MANA", "player")
+	else
+	  engineEvents:UnregisterEvent("UNIT_HEALTH")
+	  engineEvents:UnregisterEvent("UNIT_MANA")
+	end
+
+	if poll and not engine.poll then
+	  engine.poll = C_Timer.NewTicker(0.5, function()
+		if NeedsSwitch() then Schedule() end
+	  end)
+	elseif not poll and engine.poll then
+	  engine.poll:Cancel()
+	  engine.poll = nil
+	end
+	Schedule()
+  end
+
+  engineEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+  engineEvents:RegisterEvent("PLAYER_LEAVING_WORLD")
+  engineEvents:RegisterUnitEvent("UNIT_AURA", "player") -- mounted, stealth, dining
+  engineEvents:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+  engineEvents:RegisterEvent("ZONE_CHANGED")
+  engineEvents:RegisterEvent("ZONE_CHANGED_INDOORS")
+  engineEvents:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+  engineEvents:RegisterEvent("PLAYER_UPDATE_RESTING")
+  engineEvents:RegisterEvent("PLAYER_TARGET_CHANGED")
+  engineEvents:RegisterEvent("PLAYER_REGEN_ENABLED")	-- a boss target died mid-fight
+  engineEvents:SetScript("OnEvent", function()
+	if event == "PLAYER_LEAVING_WORLD" then
+	  engine.ready = false
+	elseif event == "PLAYER_ENTERING_WORLD" then
+	  -- Zone/instance info is unreliable right after a loading screen.
+	  engine.ready = false
+	  C_Timer.After(3, function()
+		engine.ready = true
+		Schedule()
+	  end)
+	else
+	  Schedule()
+	end
+  end)
+
+  -- This file runs from PLAYER_LOGIN, after the first PLAYER_ENTERING_WORLD
+  -- may already have been dispatched, so arm the engine once here as well.
+  C_Timer.After(3, function()
+	engine.ready = true
+	Schedule()
+  end)
+
+  -- Trigger editor panel
+  local TRIGGER_ROWS, TRIGGER_ROW_H = 5, 24
+  local TRIGGER_STRIDE = TRIGGER_ROW_H + 2
+  local TRIGGER_LIST_W = 296
+  local triggerPanel = CreateSubPanel("STEqMgrTriggerFrame", TRIGGER_LIST_W + 36, 470, "Automatic Set Switching")
+  local selectedTriggerID = nil
+  triggerPanel.offset = 0
+
+  local cbAuto = CreateCheckbox(triggerPanel, "Enable Automatic Set Switching")
+  cbAuto:SetPoint("TOPLEFT", triggerPanel, "TOPLEFT", 16, -30)
+  cbAuto:SetScript("OnClick", function()
+	db.config.autoswitch = this:GetChecked() and true or false
+	UpdateEngine()
+	RefreshTriggerPanel()
+  end)
+
+  local cbAnnounce = CreateCheckbox(triggerPanel, "Announce Switches In Chat")
+  cbAnnounce:SetPoint("TOPLEFT", cbAuto, "BOTTOMLEFT", 0, 4)
+  cbAnnounce:SetScript("OnClick", function()
+	db.config.announce = this:GetChecked() and true or false
+  end)
+
+  local triggerList = CreateFrame("Frame", nil, triggerPanel)
+  triggerList:SetPoint("TOPLEFT", triggerPanel, "TOPLEFT", 18, -80)
+  triggerList:SetWidth(TRIGGER_LIST_W)
+  triggerList:SetHeight(TRIGGER_ROWS * TRIGGER_STRIDE + 10)
+  ApplyInsetBackdrop(triggerList)
+  triggerList:EnableMouseWheel(true)
+  triggerList:SetScript("OnMouseWheel", function()
+	triggerPanel.offset = triggerPanel.offset - (arg1 or 0)
+	RefreshTriggerPanel()
+  end)
+
+  triggerList.empty = triggerList:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+  triggerList.empty:SetPoint("CENTER", triggerList, "CENTER", 0, 0)
+  triggerList.empty:SetWidth(TRIGGER_LIST_W - 20)
+  triggerList.empty:SetText("No triggers yet. Click \"New Trigger\" to add one.")
+
+  local function MoveTrigger(index, delta)
+	local target = index + delta
+	if target < 1 or target > table.getn(db.triggers) then return end
+	db.triggers[index], db.triggers[target] = db.triggers[target], db.triggers[index]
+	UpdateEngine()
+	RefreshTriggerPanel()
+  end
+
+  local triggerRows = {}
+  for i = 1, TRIGGER_ROWS do
+	local row = CreateFrame("Button", nil, triggerList)
+	row:SetWidth(TRIGGER_LIST_W - 12); row:SetHeight(TRIGGER_ROW_H)
+	row:SetPoint("TOPLEFT", triggerList, "TOPLEFT", 6, -5 - (i - 1) * TRIGGER_STRIDE)
+	row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+
+	row.selTex = row:CreateTexture(nil, "BACKGROUND")
+	row.selTex:SetAllPoints(row)
+	row.selTex:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+	row.selTex:SetBlendMode("ADD")
+	row.selTex:SetVertexColor(0.4, 0.35, 0.1, 0.9)
+	row.selTex:Hide()
+
+	row.check = CreateCheckbox(row)
+	row.check:SetPoint("LEFT", row, "LEFT", 0, 0)
+	row.check:SetScript("OnClick", function()
+	  local r = this:GetParent()
+	  if not r.trigger then return end
+	  r.trigger.enabled = this:GetChecked() and true or false
+	  if not r.trigger.enabled and db.applied == r.trigger.id then engine.forceApply = nil end
+	  UpdateEngine()
+	  RefreshTriggerPanel()
+	end)
+
+	row.delete = CreateDeleteButton(row)
+	row.delete:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+	row.down = CreateArrowButton(row, "down")
+	row.down:SetPoint("RIGHT", row.delete, "LEFT", 0, 0)
+	row.up = CreateArrowButton(row, "up")
+	row.up:SetPoint("RIGHT", row.down, "LEFT", 0, 0)
+
+	row.up:SetScript("OnClick", function()
+	  local r = this:GetParent()
+	  if r.index then MoveTrigger(r.index, -1) end
+	end)
+	row.down:SetScript("OnClick", function()
+	  local r = this:GetParent()
+	  if r.index then MoveTrigger(r.index, 1) end
+	end)
+	row.delete:SetScript("OnClick", function()
+	  local r = this:GetParent()
+	  if not r.index then return end
+	  local t = table.remove(db.triggers, r.index)
+	  if t and t.id == selectedTriggerID then selectedTriggerID = nil end
+	  PlaySound("igMainMenuOptionCheckBoxOn")
+	  UpdateEngine()
+	  RefreshTriggerPanel()
+	end)
+
+	row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	row.text:SetPoint("LEFT", row.check, "RIGHT", 2, 0)
+	row.text:SetPoint("RIGHT", row.up, "LEFT", -4, 0)
+	row.text:SetJustifyH("LEFT")
+
+	row:SetScript("OnClick", function()
+	  if not this.trigger then return end
+	  selectedTriggerID = this.trigger.id
+	  PlaySound("igMainMenuOptionFaerTab")
+	  RefreshTriggerPanel()
+	end)
+
+	row:SetScript("OnEnter", function()
+	  local t = this.trigger
+	  if not t then return end
+	  GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+	  GameTooltip:SetText(DescribeTrigger(t), 1, 1, 1)
+	  local equip = SetExists(t.setID) and SetName(t.setID) or ("|cffff5555No set selected|r")
+	  GameTooltip:AddDoubleLine("Equip", equip, .7, .7, .7, 1, 1, 1)
+	  local leave = "Restore Previous Gear"
+	  if t.leave == "none" then leave = "Do Nothing"
+	  elseif type(t.leave) == "number" then leave = SetExists(t.leave) and SetName(t.leave) or "?" end
+	  GameTooltip:AddDoubleLine("When It Ends", leave, .7, .7, .7, 1, 1, 1)
+	  if db.applied == t.id then
+		GameTooltip:AddLine("Currently active", .2, 1, .2)
+	  elseif TriggerUsable(t) and ConditionActive(t) then
+		GameTooltip:AddLine("Condition met, but a trigger higher in the list wins", 1, .82, 0, 1)
+	  end
+	  GameTooltip:Show()
+	end)
+	row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+	triggerRows[i] = row
+  end
+
+  local btnNewTrigger = CreateFrame("Button", "STEqMgrNewTrigger", triggerPanel, "UIPanelButtonTemplate")
+  btnNewTrigger:SetWidth(110); btnNewTrigger:SetHeight(22)
+  btnNewTrigger:SetPoint("TOPLEFT", triggerList, "BOTTOMLEFT", 0, -6)
+  btnNewTrigger:SetText("New Trigger")
+  btnNewTrigger:SetScript("OnClick", function()
+	local ids = GetVisibleSetIDs()
+	local t = {
+	  id	  = db.nextID,
+	  enabled = true,
+	  type	  = "mounted",
+	  setID   = ids[1],
+	  leave   = "restore",
+	}
+	db.nextID = db.nextID + 1
+	table.insert(db.triggers, t)
+	selectedTriggerID = t.id
+	PlaySound("igMainMenuOptionCheckBoxOn")
+	-- Scroll so the new trigger is visible.
+	triggerPanel.offset = math.max(0, table.getn(db.triggers) - TRIGGER_ROWS)
+	UpdateEngine()
+	RefreshTriggerPanel()
+  end)
+
+  -- Editor for the selected trigger
+  local editor = CreateFrame("Frame", nil, triggerPanel)
+  editor:SetPoint("TOPLEFT", btnNewTrigger, "BOTTOMLEFT", 0, -10)
+  editor:SetWidth(TRIGGER_LIST_W); editor:SetHeight(132)
+
+  editor.header = editor:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  editor.header:SetPoint("TOPLEFT", editor, "TOPLEFT", 0, 0)
+  editor.header:SetText("Selected Trigger")
+
+  local EDITOR_ROW_Y = { -20, -48, -76, -104 }
+  local EDITOR_FIELD_W = 190
+  local function EditorLabel(text, row)
+	local fs = editor:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	fs:SetPoint("TOPLEFT", editor, "TOPLEFT", 0, EDITOR_ROW_Y[row] - 8)
+	fs:SetText(text)
+	return fs
+  end
+
+  local function EditorDropdown(row)
+	-- UIDropDownMenuTemplate draws its box ~16px inside the frame on each
+	-- side, so it is widened and shifted to line up with the text box.
+	local dd = CreateDropdown(editor, EDITOR_FIELD_W - 24)
+	dd:SetPoint("TOPRIGHT", editor, "TOPRIGHT", 16, EDITOR_ROW_Y[row] + 2)
+	return dd
+  end
+
+  local function SelectedTrigger()
+	return FindTrigger(selectedTriggerID)
+  end
+
+  local function OnTriggerEdited()
+	-- Re-evaluate from scratch: the edit may change which trigger wins,
+	-- and an edited active trigger may now point at another set.
+	if selectedTriggerID and selectedTriggerID == db.applied then engine.forceApply = true end
+	UpdateEngine()
+	RefreshTriggerPanel()
+  end
+
+  EditorLabel("When", 1)
+  local ddType = EditorDropdown(1)
+  ddType.menuFunc = function()
+	local menu = {}
+	for _, info in ipairs(TRIGGER_TYPES) do
+	  if info.value ~= "list" or info.options then
+		local key = info.key
+		table.insert(menu, { text = info.text, value = key, func = function()
+		  local t = SelectedTrigger()
+		  if not t or t.type == key then return end
+		  t.type = key
+		  t.value = DefaultTriggerValue(key)
+		  OnTriggerEdited()
+		end })
+	  end
+	end
+	return menu
+  end
+
+  local valueLabel = EditorLabel("Value", 2)
+  local ddValue = EditorDropdown(2)
+  ddValue.menuFunc = function()
+	local menu = {}
+	local t = SelectedTrigger()
+	local info = t and TRIGGER_TYPE[t.type]
+	for _, o in ipairs(info and info.options or {}) do
+	  local value = o.value
+	  table.insert(menu, { text = o.text, value = value, func = function()
+		local t = SelectedTrigger()
+		if not t then return end
+		t.value = value
+		OnTriggerEdited()
+	  end })
+	end
+	return menu
+  end
+
+  local editValue = CreateFrame("EditBox", "STEqMgrTriggerValueEdit", editor, "InputBoxTemplate")
+  editValue:SetHeight(20)
+  editValue:SetAutoFocus(false)
+  editValue:SetMaxLetters(255)
+  editValue:SetScript("OnTextChanged", function()
+	if this.updating then return end
+	local t = SelectedTrigger()
+	if not t then return end
+	t.value = this:GetText()
+	local valid = t.type ~= "time" or ParseTimeWindow(t.value)
+	this:SetTextColor(1, valid and 1 or .3, valid and 1 or .3)
+	Schedule()
+  end)
+  editValue:SetScript("OnEnterPressed", function()
+	this:ClearFocus()
+	RefreshTriggerPanel()
+  end)
+  editValue:SetScript("OnEscapePressed", function() this:ClearFocus() end)
+  editValue:SetScript("OnEditFocusGained", function() this.hasFocus = true end)
+  editValue:SetScript("OnEditFocusLost", function()
+	this.hasFocus = nil
+	RefreshTriggerPanel()
+  end)
+  editValue:SetScript("OnEnter", function()
+	local t = SelectedTrigger()
+	if not t then return end
+	GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+	if t.type == "zone" then
+	  GameTooltip:SetText("Zone or subzone name", 1, 1, 1)
+	  GameTooltip:AddLine("Separate several zones with ;", .8, .8, .8, 1)
+	else
+	  GameTooltip:SetText("Local time window, e.g. 20:00-23:00", 1, 1, 1)
+	  GameTooltip:AddLine("Windows may wrap past midnight (22:00-02:00).", .8, .8, .8, 1)
+	end
+	GameTooltip:Show()
+  end)
+  editValue:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+  local btnCurrentZone = CreateFrame("Button", "STEqMgrTriggerHere", editor, "UIPanelButtonTemplate")
+  btnCurrentZone:SetWidth(50); btnCurrentZone:SetHeight(20)
+  btnCurrentZone:SetPoint("TOPRIGHT", editor, "TOPRIGHT", 0, EDITOR_ROW_Y[2] - 2)
+  btnCurrentZone:SetText("Here")
+  btnCurrentZone:SetScript("OnEnter", function()
+	GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+	GameTooltip:SetText("Add the current zone", 1, 1, 1)
+	local sub = GetSubZoneText() or ""
+	GameTooltip:AddLine(GetRealZoneText() .. ((sub ~= "") and (" / " .. sub) or ""), .8, .8, .8)
+	GameTooltip:AddLine("Shift-Click adds the subzone instead.", .8, .8, .8)
+	GameTooltip:Show()
+  end)
+  btnCurrentZone:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  btnCurrentZone:SetScript("OnClick", function()
+	local t = SelectedTrigger()
+	if not t then return end
+	-- Shift adds the subzone instead of the zone.
+	local here = IsShiftKeyDown() and GetSubZoneText() or GetRealZoneText()
+	if not here or here == "" then here = GetRealZoneText() end
+	local entries = ZoneEntries(t.value)
+	if table.getn(entries) == 0 then
+	  t.value = here
+	else
+	  for _, entry in ipairs(entries) do
+		if entry == string.lower(here) then return end
+	  end
+	  t.value = t.value .. "; " .. here
+	end
+	OnTriggerEdited()
+  end)
+
+  EditorLabel("Equip", 3)
+  local ddSet = EditorDropdown(3)
+  ddSet.menuFunc = function()
+	local menu = {}
+	for _, id in ipairs(GetVisibleSetIDs()) do
+	  local setID = id
+	  table.insert(menu, { text = SetName(setID), value = setID, func = function()
+		local t = SelectedTrigger()
+		if not t then return end
+		t.setID = setID
+		OnTriggerEdited()
+	  end })
+	end
+	return menu
+  end
+
+  EditorLabel("When It Ends", 4)
+  local ddLeave = EditorDropdown(4)
+  ddLeave.menuFunc = function()
+	local function Choose(value)
+	  return function()
+		local t = SelectedTrigger()
+		if not t then return end
+		t.leave = value
+		OnTriggerEdited()
+	  end
+	end
+	local menu = {
+	  { text = "Restore Previous Gear", value = "restore", func = Choose("restore") },
+	  { text = "Do Nothing",			value = "none",    func = Choose("none") },
+	}
+	for _, id in ipairs(GetVisibleSetIDs()) do
+	  table.insert(menu, { text = "Equip " .. SetName(id), value = id, func = Choose(id) })
+	end
+	return menu
+  end
+
+  editor.noSets = editor:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  editor.noSets:SetPoint("TOPRIGHT", editor, "TOPRIGHT", 0, EDITOR_ROW_Y[3] - 8)
+  editor.noSets:SetText("Create an equipment set first.")
+
+  local triggerHint = triggerPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  triggerHint:SetPoint("BOTTOMLEFT", triggerPanel, "BOTTOMLEFT", 20, 18)
+  triggerHint:SetPoint("BOTTOMRIGHT", triggerPanel, "BOTTOMRIGHT", -20, 18)
+  triggerHint:SetHeight(40)
+  triggerHint:SetJustifyH("LEFT")
+  triggerHint:SetJustifyV("BOTTOM")
+  triggerHint:SetText("Triggers higher in the list take priority. Gear is never swapped in combat, while dead or while casting: the switch waits until it can happen.")
+
+  editor.placeholder = triggerPanel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+  editor.placeholder:SetPoint("TOPLEFT", editor, "TOPLEFT", 0, -30)
+  editor.placeholder:SetPoint("TOPRIGHT", editor, "TOPRIGHT", 0, -30)
+  editor.placeholder:SetText("Select a trigger to edit it.")
+
+  local function RefreshTriggerRows()
+	cbAuto:SetChecked(db.config.autoswitch and 1 or nil)
+	cbAnnounce:SetChecked(db.config.announce and 1 or nil)
+
+	local num = table.getn(db.triggers)
+	local maxOffset = math.max(0, num - TRIGGER_ROWS)
+	if triggerPanel.offset > maxOffset then triggerPanel.offset = maxOffset end
+	if triggerPanel.offset < 0 then triggerPanel.offset = 0 end
+
+	for i, row in ipairs(triggerRows) do
+	  local index = i + triggerPanel.offset
+	  local t = db.triggers[index]
+	  if t then
+		row.trigger = t
+		row.index = index
+		row.check:SetChecked(t.enabled and 1 or nil)
+
+		local color = "|cffffffff"
+		if not t.enabled then
+		  color = "|cff808080"
+		elseif not SetExists(t.setID) then
+		  color = "|cffff5555"
+		elseif db.applied == t.id then
+		  color = "|cff33ff33"
+		elseif ConditionActive(t) then
+		  color = "|cffffd100"
+		end
+		local target = SetExists(t.setID) and SetName(t.setID) or "No set selected"
+		row.text:SetText(color .. DescribeTrigger(t) .. "|r |cffaaaaaa>|r " .. color .. target .. "|r")
+
+		if t.id == selectedTriggerID then row.selTex:Show() else row.selTex:Hide() end
+		if index > 1 then row.up:Enable() else row.up:Disable() end
+		if index < num then row.down:Enable() else row.down:Disable() end
+		row:Show()
+	  else
+		row.trigger = nil
+		row.index = nil
+		row:Hide()
+	  end
+	end
+	if num == 0 then triggerList.empty:Show() else triggerList.empty:Hide() end
+  end
+
+  function RefreshTriggerPanel()
+	if not triggerPanel:IsShown() then return end
+	RefreshTriggerRows()
+
+	local num = table.getn(db.triggers)
+	local t = SelectedTrigger()
+	if not t then
+	  editor:Hide()
+	  editor.placeholder:SetShown(num > 0)
+	  return
+	end
+	editor:Show()
+	editor.placeholder:Hide()
+
+	SelectDropdownValue(ddType, t.type)
+
+	local info = TRIGGER_TYPE[t.type]
+	local kind = info and info.value
+	valueLabel:SetShown(kind ~= nil)
+	ddValue:SetShown(kind == "list")
+	editValue:SetShown(kind == "text")
+	btnCurrentZone:SetShown(t.type == "zone")
+	if kind == "list" then
+	  SelectDropdownValue(ddValue, t.value)
+	elseif kind == "text" then
+	  editValue:ClearAllPoints()
+	  -- InputBoxTemplate's left border sits ~6px outside the frame.
+	  editValue:SetPoint("TOPLEFT", editor, "TOPRIGHT", -EDITOR_FIELD_W + 6, EDITOR_ROW_Y[2] - 2)
+	  if t.type == "zone" then
+		editValue:SetPoint("BOTTOMRIGHT", btnCurrentZone, "BOTTOMLEFT", -6, 0)
+	  else
+		editValue:SetPoint("BOTTOMRIGHT", editor, "TOPRIGHT", -2, EDITOR_ROW_Y[2] - 22)
+	  end
+	  if not editValue.hasFocus then
+		editValue.updating = true
+		editValue:SetText(t.value or "")
+		editValue.updating = nil
+	  end
+	  local valid = t.type ~= "time" or ParseTimeWindow(t.value)
+	  editValue:SetTextColor(1, valid and 1 or .3, valid and 1 or .3)
+	end
+
+	local hasSets = table.getn(GetVisibleSetIDs()) > 0
+	ddSet:SetShown(hasSets)
+	editor.noSets:SetShown(not hasSets)
+	SelectDropdownValue(ddSet, t.setID)
+	SelectDropdownValue(ddLeave, t.leave or "restore")
+  end
+
+  triggerPanel:SetScript("OnShow", function() RefreshTriggerPanel() end)
+  -- Row colors show which conditions currently hold; keep them live.
+  triggerPanel:SetScript("OnUpdate", function()
+	this.elapsed = (this.elapsed or 0) + (arg1 or 0)
+	if this.elapsed < 1 then return end
+	this.elapsed = 0
+	RefreshTriggerRows()
+  end)
+  triggerPanel:SetScript("OnHide", function()
+	CloseDropDownMenus()
+	editValue:ClearFocus()
+  end)
+
+  -- Sidecar buttons that open the panels
+  local btnUnused = CreateFrame("Button", "STEqMgrUnused", frame, "UIPanelButtonTemplate")
+  btnUnused:SetWidth(98); btnUnused:SetHeight(22)
+  btnUnused:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 16)
+  btnUnused:SetText("Unused")
+  btnUnused:SetScript("OnClick", function() ToggleSubPanel(unusedPanel) end)
+  btnUnused:SetScript("OnEnter", function()
+	GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+	GameTooltip:SetText("Items Not In Any Set", 1, 1, 1)
+	GameTooltip:AddLine("Equippable items in your bags, bank and paperdoll that no equipment set uses.", .8, .8, .8, 1)
+	GameTooltip:Show()
+  end)
+  btnUnused:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+  local btnTriggers = CreateFrame("Button", "STEqMgrTriggers", frame, "UIPanelButtonTemplate")
+  btnTriggers:SetWidth(98); btnTriggers:SetHeight(22)
+  btnTriggers:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -16, 16)
+  btnTriggers:SetText("Triggers")
+  btnTriggers:SetScript("OnClick", function() ToggleSubPanel(triggerPanel) end)
+  btnTriggers:SetScript("OnEnter", function()
+	GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+	GameTooltip:SetText("Automatic Set Switching", 1, 1, 1)
+	GameTooltip:AddLine("Equip sets automatically when mounted, swimming, eating, in a zone, at a given time and more.", .8, .8, .8, 1)
+	GameTooltip:Show()
+  end)
+  btnTriggers:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+  -- Called at the end of every Refresh().
+  function eqmgr.RefreshExtras()
+	local list = ScanUnusedItems()
+	btnUnused:SetText("Unused (" .. table.getn(list) .. ")")
+	if unusedPanel:IsShown() then RefreshUnusedPanel() end
+	if triggerPanel:IsShown() then RefreshTriggerPanel() end
+  end
+
+  UpdateEngine()
+  end
+  SetupExtras()
+
   -- Events
-  -- -----------------------------------------------------------------------
   local events = CreateFrame("Frame")
   events:RegisterEvent("EQUIPMENT_SETS_CHANGED")
   events:RegisterEvent("EQUIPMENT_SWAP_FINISHED")
@@ -1504,12 +3031,6 @@ frame:SetScript("OnEvent", function()
 		PlaySound("INTERFACESOUND_CURSORDROPOBJECT")
 	  end
 	elseif event == "WEAR_EQUIPMENT_SET" then
-	  local setID = arg1
-	  if not setID then return end
-	  local name, _, _, _, _, _, _, numMissing = C_EquipmentSet.GetEquipmentSetInfo(setID)
-	  if numMissing and numMissing > 0 and name then
-		UIErrorsFrame:AddMessage(string.format(ERR_EQUIPMENT_MANAGER_MISSING_ITEM_S, name), 1, .1, .1, 1)
-	  end
 	  PlaySound("INTERFACESOUND_CHARWINDOWTAB")
 	elseif event == "PLAYER_EQUIPMENT_CHANGED" then
 	  local changedSlot = arg1
@@ -1542,4 +3063,8 @@ frame:SetScript("OnEvent", function()
   if C_EquipmentSet.PickupEquipmentSet then
 	events:RegisterEvent("CURSOR_CHANGED")
   end
+
+  GameTooltip:HookScript("OnTooltipSetItem", function()
+	this:Show()
+  end)
 end)
