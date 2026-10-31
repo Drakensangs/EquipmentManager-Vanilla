@@ -2232,30 +2232,77 @@ frame:SetScript("OnEvent", function()
 
   -- Condition checks
 
-  -- Every food and drink buff shares the name of the base Food (433) or
-  -- Drink (430) aura, so their localized names identify all of them.
-  local DINING_AURAS = {}
-  for _, spellID in ipairs({ 433, 430 }) do
-	local n = C_Spell.GetSpellName(spellID)
-	if n then table.insert(DINING_AURAS, n) end
+  -- Every food and drink buff in 1.12.1 shares the name of the base
+  -- Food (433) or Drink (430) aura, and uses one of a few icons. Names
+  -- are resolved lazily: right after login the spell name lookup can
+  -- still come back empty, and a list built once at load would then
+  -- stay empty for the whole session.
+  local DINING_SPELLS = { 433, 430 }
+  local DINING_FALLBACK = { "food", "drink" }
+  local DINING_ICONS = {
+	["inv_misc_fork&knife"] = true,
+	["inv_drink_07"] = true,
+	["inv_drink_18"] = true,
+  }
+  local diningNames, diningResolved = {}, false
+
+  local function ResolveDiningNames()
+	if diningResolved then return end
+	local all = true
+	for _, n in ipairs(DINING_FALLBACK) do diningNames[n] = true end
+	for _, spellID in ipairs(DINING_SPELLS) do
+	  local n = C_Spell.GetSpellName(spellID)
+	  if n and n ~= "" then diningNames[string.lower(n)] = true
+	  else all = false end
+	end
+	diningResolved = all
   end
 
-  -- Like Outfitter: the dining set stays on only while there's still
-  -- health or mana to regenerate, so it comes off as soon as you're full.
+  local function IconKey(icon)
+	if type(icon) ~= "string" then return nil end
+	local _, _, base = string.find(string.lower(icon), "([^\\/]+)$")
+	return base
+  end
+
+  -- The dining condition is purely "a food/drink buff is on the player".
+  -- It used to also require missing health or mana, which made it flap:
+  -- swapping into gear with less stamina/intellect lowers max health/mana,
+  -- so you'd suddenly read as "full", swap out, max goes back up, swap in
+  -- again... every half second. It also ended the set while still eating.
   local function IsDining()
-	local healthFull = UnitHealth("player") >= UnitHealthMax("player")
-	local manaFull = UnitPowerType("player") ~= 0 or UnitMana("player") >= UnitManaMax("player")
-	if healthFull and manaFull then return false end
-	for _, name in ipairs(DINING_AURAS) do
-	  if C_UnitAuras.GetAuraDataBySpellName("player", name, "HELPFUL") then return true end
+	ResolveDiningNames()
+	local i = 1
+	local d = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+	while d do
+	  if (d.name and diningNames[string.lower(d.name)]) or DINING_ICONS[IconKey(d.icon) or ""] then
+		return true
+	  end
+	  i = i + 1
+	  d = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
 	end
 	return false
+  end
+  
+  local function SplitTriggerValue(value, delimiter)
+	local entries = {}
+	value = value or ""
+	local start = 1
+	while true do
+	  local first, last = string.find(value, delimiter, start, true)
+	  if not first then
+		table.insert(entries, string.sub(value, start))
+		break
+	  end
+	  table.insert(entries, string.sub(value, start, first - 1))
+	  start = last + 1
+	end
+	return entries
   end
 
   local function InForm(value)
 	local formID = GetShapeshiftFormID() or 0
 	if value == "any" then return formID ~= 0 end
-	for _, id in ipairs({ strsplit(",", value or "") }) do
+	for _, id in ipairs(SplitTriggerValue(value, ",")) do
 	  if tonumber(id) == formID then return true end
 	end
 	return false
@@ -2264,8 +2311,8 @@ frame:SetScript("OnEvent", function()
   -- Zone trigger values are "zone; subzone; ..." as typed or added with "Here".
   local function ZoneEntries(value)
 	local entries = {}
-	for _, entry in ipairs({ strsplit(";", value or "") }) do
-	  entry = string.lower(strtrim(entry))
+	for _, entry in ipairs(SplitTriggerValue(value, ";")) do
+	  entry = string.lower((string.gsub(entry, "^%s*(.-)%s*$", "%1")))
 	  if entry ~= "" then table.insert(entries, entry) end
 	end
 	return entries
@@ -2454,28 +2501,17 @@ frame:SetScript("OnEvent", function()
 
   -- Swimming and the time of day fire no event, so those are polled while
   -- a trigger needs them.
-  local POLLED = { swimming = true, time = true }
+  local POLLED = { swimming = true, time = true, dining = true }
 
   local engineEvents = CreateFrame("Frame")
 
   -- Call after any change to the triggers or the autoswitch setting.
   local function UpdateEngine()
-	local poll, dining = false, false
+	local poll = false
 	if db.config.autoswitch then
 	  for _, t in ipairs(db.triggers) do
 		if t.enabled and POLLED[t.type] then poll = true end
-		if t.enabled and t.type == "dining" then dining = true end
 	  end
-	end
-
-	-- The dining set comes off once health and mana are full; these fire
-	-- constantly in combat, so only listen while a dining trigger exists.
-	if dining then
-	  engineEvents:RegisterUnitEvent("UNIT_HEALTH", "player")
-	  engineEvents:RegisterUnitEvent("UNIT_MANA", "player")
-	else
-	  engineEvents:UnregisterEvent("UNIT_HEALTH")
-	  engineEvents:UnregisterEvent("UNIT_MANA")
 	end
 
 	if poll and not engine.poll then

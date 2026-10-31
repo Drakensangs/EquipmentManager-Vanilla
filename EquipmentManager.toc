@@ -2,7 +2,7 @@
 ## Title: Equipment Manager
 ## Notes: Create, manage and swap between equipment sets.
 ## Author: Original module: brues-code; Addon version: Drakensangs
-## Version: 1.3
+## Version: 1.4
 ## SavedVariablesPerCharacter: EquipmentManagerDB
 
 EquipmentManager.lua
