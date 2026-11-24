@@ -27,20 +27,14 @@ frame:SetScript("OnEvent", function()
 	tile = true, tileSize = 32, edgeSize = 32,
 	insets = { left = 11, right = 12, top = 12, bottom = 11 },
   }
-  -- Inset panel
-  local INSET_BACKDROP = {
-	bgFile   = "Interface\\FrameGeneral\\UI-Background-Rock",
-	edgeFile = "Interface\\FrameGeneral\\UI-Background-Rock",
-	tile = true, tileSize = 64, edgeSize = 1,
-	insets = { left = 4, right = 4, top = 4, bottom = 4 },
-  }
 
   local function ApplyDialogBackdrop(frame)
 	frame:SetBackdrop(DIALOG_BACKDROP)
   end
 
   local function ApplyInsetBackdrop(frame)
-	frame:SetBackdrop(INSET_BACKDROP)
+	-- Intentionally empty: insets show the parent dialog background.
+	frame:SetBackdrop(nil)
   end
 
   -- Location-bitfield helpers
